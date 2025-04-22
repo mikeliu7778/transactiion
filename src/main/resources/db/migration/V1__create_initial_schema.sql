@@ -17,7 +17,8 @@ CREATE TABLE Accounts (
     currency VARCHAR(3) NOT NULL DEFAULT 'CNY',
     balance DECIMAL(15, 2) DEFAULT 0.00 CHECK (balance >= 0),
     del_flag TINYINT NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_customer_id (customer_id)
 );
 
 -- 创建转出交易表
@@ -29,7 +30,10 @@ CREATE TABLE OutgoingTransactions (
     amount DECIMAL(15, 2) NOT NULL CHECK (amount >= 0),
     to_account_id INT,
     del_flag TINYINT NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_account_id (account_id),
+    INDEX idx_customer_id (customer_id),
+    INDEX idx_to_account_id (to_account_id)
 );
 
 -- 创建转入交易表
@@ -41,7 +45,10 @@ CREATE TABLE IncomingTransactions (
     amount DECIMAL(15, 2) NOT NULL CHECK (amount >= 0),
     from_account_id INT,
     del_flag TINYINT NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_account_id (account_id),
+    INDEX idx_customer_id (customer_id),
+    INDEX idx_from_account_id (from_account_id)
 );
 
 -- 创建交易日志表
@@ -51,5 +58,6 @@ CREATE TABLE TransactionLogs (
     status ENUM('PENDING', 'COMPLETED', 'FAILED', 'REVERSED') NOT NULL,
     message TEXT,
     del_flag TINYINT NOT NULL DEFAULT 0,
-    logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_transaction_id (transaction_id)
 ); 

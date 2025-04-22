@@ -5,6 +5,7 @@ import com.hsbc.transaction.entity.IncomingTransaction;
 import com.hsbc.transaction.entity.OutgoingTransaction;
 import com.hsbc.transaction.entity.Transaction;
 import com.hsbc.transaction.service.TransactionService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -15,6 +16,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/transactions")
 @RequiredArgsConstructor
+@Tag(name = "交易管理", description = "交易管理相关接口")
 public class TransactionController {
 
     private final TransactionService transactionService;
