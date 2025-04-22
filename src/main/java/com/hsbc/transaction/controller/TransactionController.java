@@ -65,4 +65,4 @@ public class TransactionController {
             @RequestParam Long accountId) {
         return ResponseEntity.ok(transactionService.listAllTransactions(accountId));
     }
-} 
+}
