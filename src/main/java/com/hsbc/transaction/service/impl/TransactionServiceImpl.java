@@ -1,0 +1,339 @@
+package com.hsbc.transaction.service.impl;
+
+import com.hsbc.transaction.dto.TransactionRequest;
+import com.hsbc.transaction.entity.Account;
+import com.hsbc.transaction.entity.IncomingTransaction;
+import com.hsbc.transaction.entity.OutgoingTransaction;
+import com.hsbc.transaction.entity.TransactionLog;
+import com.hsbc.transaction.entity.Transaction;
+import com.hsbc.transaction.enums.TransactionType;
+import com.hsbc.transaction.repository.AccountRepository;
+import com.hsbc.transaction.repository.IncomingTransactionRepository;
+import com.hsbc.transaction.repository.OutgoingTransactionRepository;
+import com.hsbc.transaction.repository.TransactionLogRepository;
+import com.hsbc.transaction.service.TransactionService;
+import com.hsbc.transaction.enums.TransactionStatus;
+import com.hsbc.transaction.exception.InsufficientBalanceException;
+import com.hsbc.transaction.exception.InvalidTransactionException;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+
+import jakarta.persistence.EntityNotFoundException;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class TransactionServiceImpl implements TransactionService {
+
+    private final OutgoingTransactionRepository outgoingTransactionRepository;
+    private final IncomingTransactionRepository incomingTransactionRepository;
+    private final AccountRepository accountRepository;
+    private final TransactionLogRepository transactionLogRepository;
+
+    @Override
+    @Transactional
+    public void createTransaction(TransactionRequest request) {
+        TransactionType type = request.getTransactionType();
+        
+        // 创建转出交易记录
+        OutgoingTransaction outgoing = OutgoingTransaction.builder()
+                .accountId(request.getAccountId())
+                .customerId(request.getCustomerId())
+                .amount(request.getAmount())
+                .transactionType(type)
+                .toAccountId(request.getTargetAccountId())
+                .delFlag(false)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        OutgoingTransaction savedOutgoing = processTransaction(outgoing);
+
+        // 如果是转账类型，还需要创建转入交易记录
+        if (TransactionType.TRANSFER == type) {
+            IncomingTransaction incoming = IncomingTransaction.builder()
+                    .transactionId(savedOutgoing.getTransactionId())
+                    .accountId(request.getTargetAccountId())
+                    .customerId(request.getCustomerId())
+                    .amount(request.getAmount())
+                    .transactionType(TransactionType.TRANSFER)
+                    .fromAccountId(request.getAccountId())
+                    .delFlag(false)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            
+            incomingTransactionRepository.save(incoming);
+        }
+
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteTransaction(Long transactionId) {
+        OutgoingTransaction outgoing = null;
+        try {
+            // 查找并软删除转出交易
+            outgoing = outgoingTransactionRepository.findById(transactionId)
+                    .orElseThrow(() -> new EntityNotFoundException("Transaction not found"));
+            
+            // 处理交易撤销逻辑
+            processTransactionReversal(outgoing);
+            
+            outgoing.setDelFlag(true);
+            outgoingTransactionRepository.save(outgoing);
+
+            // 如果是转账类型，还需要软删除对应的转入交易
+            if (TransactionType.TRANSFER == outgoing.getTransactionType()) {
+                // 根据transactionId查找对应的转入交易
+                IncomingTransaction incoming = incomingTransactionRepository
+                        .findByTransactionIdAndDelFlagFalse(outgoing.getTransactionId())
+                        .orElse(null);
+                
+                if (incoming != null) {
+                    incoming.setDelFlag(true);
+                    incomingTransactionRepository.save(incoming);
+                }
+            }
+        } catch (Exception e) {
+            // 记录失败日志
+            if (outgoing != null) {
+                logTransaction(outgoing, TransactionStatus.FAILED, "交易删除失败：" + e.getMessage());
+            }
+            throw e; // 抛出异常触发事务回滚
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void modifyTransaction(Long transactionId, TransactionRequest request) {
+        OutgoingTransaction outgoing = null;
+        try {
+            // 修改转出交易
+            outgoing = outgoingTransactionRepository.findById(transactionId)
+                    .orElseThrow(() -> new EntityNotFoundException("Transaction not found"));
+            
+            // 先处理原交易的撤销
+            processTransactionReversal(outgoing);
+            
+            // 更新交易信息
+            updateOutgoingTransaction(outgoing, request);
+            
+            // 处理新交易
+            processTransaction(outgoing);
+            
+            outgoingTransactionRepository.save(outgoing);
+
+            // 如果是转账类型，还需要修改对应的转入交易
+            if (TransactionType.TRANSFER == outgoing.getTransactionType()) {
+                // 根据transactionId查找对应的转入交易
+                IncomingTransaction incoming = incomingTransactionRepository
+                        .findByTransactionIdAndDelFlagFalse(outgoing.getTransactionId())
+                        .orElse(null);
+                
+                if (incoming != null) {
+                    updateIncomingTransaction(incoming, request);
+                    incomingTransactionRepository.save(incoming);
+                }
+            }
+        } catch (Exception e) {
+            // 记录失败日志
+            if (outgoing != null) {
+                logTransaction(outgoing, TransactionStatus.FAILED, "交易修改失败：" + e.getMessage());
+            }
+            throw e; // 抛出异常触发事务回滚
+        }
+    }
+
+    @Override
+    public List<OutgoingTransaction> listOutgoingTransactions(Long accountId) {
+        return outgoingTransactionRepository.findByAccountIdAndDelFlagFalse(accountId);
+    }
+
+    @Override
+    public List<IncomingTransaction> listIncomingTransactions(Long accountId) {
+        return incomingTransactionRepository.findByAccountIdAndDelFlagFalse(accountId);
+    }
+
+    @Override
+    public List<Transaction> listAllTransactions(Long accountId) {
+        List<Transaction> allTransactions = new ArrayList<>();
+        allTransactions.addAll(outgoingTransactionRepository.findByAccountIdAndDelFlagFalse(accountId));
+        allTransactions.addAll(incomingTransactionRepository.findByAccountIdAndDelFlagFalse(accountId));
+        return allTransactions;
+    }
+
+    private void updateOutgoingTransaction(OutgoingTransaction transaction, TransactionRequest request) {
+        if (request.getAmount() != null) {
+            transaction.setAmount(request.getAmount());
+        }
+        if (request.getTransactionType() != null) {
+            transaction.setTransactionType(request.getTransactionType());
+        }
+        if (request.getTargetAccountId() != null) {
+            transaction.setToAccountId(request.getTargetAccountId());
+        }
+    }
+
+    private void updateIncomingTransaction(IncomingTransaction transaction, TransactionRequest request) {
+        if (request.getAmount() != null) {
+            transaction.setAmount(request.getAmount());
+        }
+        if (request.getTargetAccountId() != null) {
+            transaction.setFromAccountId(request.getAccountId());
+            transaction.setAccountId(request.getTargetAccountId());
+        }
+    }
+
+    @Transactional
+    public OutgoingTransaction processTransaction(OutgoingTransaction transaction) {
+        // 验证交易基本信息
+        validateTransaction(transaction);
+        
+        // 获取源账户
+        Account sourceAccount = accountRepository.findById(transaction.getAccountId())
+            .orElseThrow(() -> new InvalidTransactionException("源账户不存在"));
+
+        try {
+            switch (transaction.getTransactionType()) {
+                case DEPOSIT:
+                    handleDeposit(sourceAccount, transaction);
+                    break;
+                case WITHDRAWAL:
+                    handleWithdrawal(sourceAccount, transaction);
+                    break;
+                case TRANSFER:
+                    handleTransfer(sourceAccount, transaction);
+                    break;
+            }
+
+            // 保存交易记录
+            OutgoingTransaction savedTransaction = outgoingTransactionRepository.save(transaction);
+            
+            // 记录交易日志
+            logTransaction(savedTransaction, TransactionStatus.COMPLETED, "交易成功");
+            
+            return savedTransaction;
+
+        } catch (Exception e) {
+            // 记录失败日志
+            logTransaction(transaction, TransactionStatus.FAILED, e.getMessage());
+            throw e;
+        }
+    }
+
+    private void validateTransaction(OutgoingTransaction transaction) {
+        if (transaction.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new InvalidTransactionException("交易金额必须大于0");
+        }
+
+        // 验证to_account_id的合法性
+        if (transaction.getTransactionType() == TransactionType.TRANSFER) {
+            if (transaction.getToAccountId() == null) {
+                throw new InvalidTransactionException("转账交易必须指定目标账户");
+            }
+        } else {
+            if (transaction.getToAccountId() != null) {
+                throw new InvalidTransactionException("存款和取款交易不能指定目标账户");
+            }
+        }
+    }
+
+    private void handleDeposit(Account account, OutgoingTransaction transaction) {
+        // 更新账户余额（增加）
+        account.setBalance(account.getBalance().add(transaction.getAmount()));
+        accountRepository.save(account);
+    }
+
+    private void handleWithdrawal(Account account, OutgoingTransaction transaction) {
+        // 检查余额是否充足
+        if (account.getBalance().compareTo(transaction.getAmount()) < 0) {
+            throw new InsufficientBalanceException("账户余额不足");
+        }
+        
+        // 更新账户余额（减少）
+        account.setBalance(account.getBalance().subtract(transaction.getAmount()));
+        accountRepository.save(account);
+    }
+
+    private void handleTransfer(Account sourceAccount, OutgoingTransaction transaction) {
+        // 检查余额是否充足
+        if (sourceAccount.getBalance().compareTo(transaction.getAmount()) < 0) {
+            throw new InsufficientBalanceException("账户余额不足");
+        }
+
+        // 获取目标账户
+        Account targetAccount = accountRepository.findById(transaction.getToAccountId())
+            .orElseThrow(() -> new InvalidTransactionException("目标账户不存在"));
+
+        // 更新源账户余额（减少）
+        sourceAccount.setBalance(sourceAccount.getBalance().subtract(transaction.getAmount()));
+        accountRepository.save(sourceAccount);
+
+        // 更新目标账户余额（增加）
+        targetAccount.setBalance(targetAccount.getBalance().add(transaction.getAmount()));
+        accountRepository.save(targetAccount);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    private void logTransaction(OutgoingTransaction transaction, TransactionStatus status, String message) {
+        TransactionLog log = new TransactionLog();
+        log.setTransactionId(transaction.getTransactionId());
+        log.setStatus(status);
+        log.setMessage(message);
+        transactionLogRepository.save(log);
+    }
+
+    private void processTransactionReversal(OutgoingTransaction transaction) {
+        // 获取源账户
+        Account sourceAccount = accountRepository.findById(transaction.getAccountId())
+            .orElseThrow(() -> new InvalidTransactionException("源账户不存在"));
+
+        try {
+            switch (transaction.getTransactionType()) {
+                case DEPOSIT:
+                    // 撤销存款：减少余额
+                    handleWithdrawal(sourceAccount, transaction);
+                    break;
+                case WITHDRAWAL:
+                    // 撤销取款：增加余额
+                    handleDeposit(sourceAccount, transaction);
+                    break;
+                case TRANSFER:
+                    // 撤销转账：源账户增加余额，目标账户减少余额
+                    handleTransferReversal(sourceAccount, transaction);
+                    break;
+            }
+            
+            // 记录交易日志
+            logTransaction(transaction, TransactionStatus.REVERSED, "交易已撤销");
+
+        } catch (Exception e) {
+            // 记录失败日志
+            logTransaction(transaction, TransactionStatus.FAILED, "交易撤销失败：" + e.getMessage());
+            throw e;
+        }
+    }
+
+    private void handleTransferReversal(Account sourceAccount, OutgoingTransaction transaction) {
+        // 获取目标账户
+        Account targetAccount = accountRepository.findById(transaction.getToAccountId())
+            .orElseThrow(() -> new InvalidTransactionException("目标账户不存在"));
+
+        // 检查目标账户余额是否充足
+        if (targetAccount.getBalance().compareTo(transaction.getAmount()) < 0) {
+            throw new InsufficientBalanceException("目标账户余额不足，无法撤销转账");
+        }
+
+        // 更新源账户余额（增加）
+        sourceAccount.setBalance(sourceAccount.getBalance().add(transaction.getAmount()));
+        accountRepository.save(sourceAccount);
+
+        // 更新目标账户余额（减少）
+        targetAccount.setBalance(targetAccount.getBalance().subtract(transaction.getAmount()));
+        accountRepository.save(targetAccount);
+    }
+} 
