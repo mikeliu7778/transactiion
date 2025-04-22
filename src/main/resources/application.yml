@@ -26,3 +26,16 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
     operationsSorter: method 
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+    info:
+      enabled: true 

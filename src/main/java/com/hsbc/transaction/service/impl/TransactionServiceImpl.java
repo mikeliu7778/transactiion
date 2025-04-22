@@ -16,6 +16,8 @@ import com.hsbc.transaction.enums.TransactionStatus;
 import com.hsbc.transaction.exception.InsufficientBalanceException;
 import com.hsbc.transaction.exception.InvalidTransactionException;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
@@ -30,6 +32,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TransactionServiceImpl implements TransactionService {
 
+    private static final Logger logger = LoggerFactory.getLogger(TransactionServiceImpl.class);
+    
     private final OutgoingTransactionRepository outgoingTransactionRepository;
     private final IncomingTransactionRepository incomingTransactionRepository;
     private final AccountRepository accountRepository;
@@ -39,6 +43,9 @@ public class TransactionServiceImpl implements TransactionService {
     @Transactional
     public void createTransaction(TransactionRequest request) {
         TransactionType type = request.getTransactionType();
+        
+        // 记录交易创建开始
+        logger.info("开始创建交易，类型：{}", type);
         
         // 创建转出交易记录
         OutgoingTransaction outgoing = OutgoingTransaction.builder()
@@ -55,6 +62,8 @@ public class TransactionServiceImpl implements TransactionService {
 
         // 如果是转账类型，还需要创建转入交易记录
         if (TransactionType.TRANSFER == type) {
+            logger.info("开始创建转入交易记录，交易ID：{}", savedOutgoing.getTransactionId());
+            
             IncomingTransaction incoming = IncomingTransaction.builder()
                     .transactionId(savedOutgoing.getTransactionId())
                     .accountId(request.getTargetAccountId())
@@ -67,8 +76,8 @@ public class TransactionServiceImpl implements TransactionService {
                     .build();
             
             incomingTransactionRepository.save(incoming);
+            logger.info("转入交易记录创建成功，交易ID：{}", savedOutgoing.getTransactionId());
         }
-
     }
 
     @Override
@@ -76,6 +85,9 @@ public class TransactionServiceImpl implements TransactionService {
     public void deleteTransaction(Long transactionId) {
         OutgoingTransaction outgoing = null;
         try {
+            // 记录删除开始
+            logger.info("开始删除交易，ID：{}", transactionId);
+            
             // 查找并软删除转出交易
             outgoing = outgoingTransactionRepository.findById(transactionId)
                     .orElseThrow(() -> new EntityNotFoundException("Transaction not found"));
@@ -85,9 +97,12 @@ public class TransactionServiceImpl implements TransactionService {
             
             outgoing.setDelFlag(true);
             outgoingTransactionRepository.save(outgoing);
+            logger.info("转出交易已标记为删除，交易ID：{}", transactionId);
 
             // 如果是转账类型，还需要软删除对应的转入交易
             if (TransactionType.TRANSFER == outgoing.getTransactionType()) {
+                logger.info("开始处理转入交易的删除，交易ID：{}", transactionId);
+                
                 // 根据transactionId查找对应的转入交易
                 IncomingTransaction incoming = incomingTransactionRepository
                         .findByTransactionIdAndDelFlagFalse(outgoing.getTransactionId())
@@ -96,6 +111,7 @@ public class TransactionServiceImpl implements TransactionService {
                 if (incoming != null) {
                     incoming.setDelFlag(true);
                     incomingTransactionRepository.save(incoming);
+                    logger.info("转入交易已标记为删除，交易ID：{}", transactionId);
                 }
             }
         } catch (Exception e) {
@@ -112,12 +128,16 @@ public class TransactionServiceImpl implements TransactionService {
     public void modifyTransaction(Long transactionId, TransactionRequest request) {
         OutgoingTransaction outgoing = null;
         try {
+            // 记录修改开始
+            logger.info("开始修改交易，ID：{}", transactionId);
+            
             // 修改转出交易
             outgoing = outgoingTransactionRepository.findById(transactionId)
                     .orElseThrow(() -> new EntityNotFoundException("Transaction not found"));
             
             // 先处理原交易的撤销
             processTransactionReversal(outgoing);
+            logger.info("原交易已撤销，交易ID：{}", transactionId);
             
             // 更新交易信息
             updateOutgoingTransaction(outgoing, request);
@@ -126,9 +146,12 @@ public class TransactionServiceImpl implements TransactionService {
             processTransaction(outgoing);
             
             outgoingTransactionRepository.save(outgoing);
+            logger.info("转出交易修改完成，交易ID：{}", transactionId);
 
             // 如果是转账类型，还需要修改对应的转入交易
             if (TransactionType.TRANSFER == outgoing.getTransactionType()) {
+                logger.info("开始修改转入交易，交易ID：{}", transactionId);
+                
                 // 根据transactionId查找对应的转入交易
                 IncomingTransaction incoming = incomingTransactionRepository
                         .findByTransactionIdAndDelFlagFalse(outgoing.getTransactionId())
@@ -137,6 +160,7 @@ public class TransactionServiceImpl implements TransactionService {
                 if (incoming != null) {
                     updateIncomingTransaction(incoming, request);
                     incomingTransactionRepository.save(incoming);
+                    logger.info("转入交易修改完成，交易ID：{}", transactionId);
                 }
             }
         } catch (Exception e) {
@@ -280,6 +304,11 @@ public class TransactionServiceImpl implements TransactionService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     private void logTransaction(OutgoingTransaction transaction, TransactionStatus status, String message) {
+        if (transaction == null) {
+            logger.info("Transaction Log - Status: {}, Message: {}", status, message);
+            return;
+        }
+        
         TransactionLog log = new TransactionLog();
         log.setTransactionId(transaction.getTransactionId());
         log.setStatus(status);
