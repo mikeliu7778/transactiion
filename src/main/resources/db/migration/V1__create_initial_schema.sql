@@ -14,6 +14,7 @@ CREATE TABLE Accounts (
     account_id INT AUTO_INCREMENT PRIMARY KEY,
     customer_id INT NOT NULL,
     account_type ENUM('SAVINGS', 'CHECKING') NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'CNY',
     balance DECIMAL(15, 2) DEFAULT 0.00 CHECK (balance >= 0),
     del_flag TINYINT NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

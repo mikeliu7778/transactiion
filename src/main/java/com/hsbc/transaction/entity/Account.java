@@ -20,6 +20,9 @@ public class Account {
     @Enumerated(EnumType.STRING)
     private AccountType accountType;
 
+    @Column(nullable = false, length = 3)
+    private String currency = "CNY";
+
     @Column(nullable = false)
     private BigDecimal balance = BigDecimal.ZERO;
 

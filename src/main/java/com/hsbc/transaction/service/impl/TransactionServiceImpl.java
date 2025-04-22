@@ -259,6 +259,16 @@ public class TransactionServiceImpl implements TransactionService {
             if (transaction.getToAccountId() == null) {
                 throw new InvalidTransactionException("转账交易必须指定目标账户");
             }
+            
+            // 验证币种是否相同
+            Account sourceAccount = accountRepository.findById(transaction.getAccountId())
+                    .orElseThrow(() -> new EntityNotFoundException("源账户不存在"));
+            Account targetAccount = accountRepository.findById(transaction.getToAccountId())
+                    .orElseThrow(() -> new EntityNotFoundException("目标账户不存在"));
+            
+            if (!sourceAccount.getCurrency().equals(targetAccount.getCurrency())) {
+                throw new InvalidTransactionException("不同币种账户之间不能直接转账");
+            }
         } else {
             if (transaction.getToAccountId() != null) {
                 throw new InvalidTransactionException("存款和取款交易不能指定目标账户");

@@ -10,6 +10,7 @@ import com.hsbc.transaction.repository.TransactionLogRepository;
 import com.hsbc.transaction.service.impl.TransactionServiceImpl;
 import com.hsbc.transaction.enums.TransactionType;
 import com.hsbc.transaction.entity.Account;
+import com.hsbc.transaction.exception.InvalidTransactionException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -77,9 +78,11 @@ class TransactionServiceTest {
     void createTransaction_Success() {
         Account sourceAccount = new Account();
         sourceAccount.setBalance(new BigDecimal("1000.00"));
+        sourceAccount.setCurrency("CNY");
         
         Account targetAccount = new Account();
         targetAccount.setBalance(new BigDecimal("1000.00"));
+        targetAccount.setCurrency("CNY");
 
         when(outgoingTransactionRepository.save(any(OutgoingTransaction.class)))
                 .thenReturn(outgoingTransaction);
@@ -95,6 +98,25 @@ class TransactionServiceTest {
         verify(outgoingTransactionRepository, times(1)).save(any(OutgoingTransaction.class));
         verify(incomingTransactionRepository).save(any(IncomingTransaction.class));
         verify(accountRepository, atLeastOnce()).findById(anyLong());
+    }
+
+    @Test
+    void createTransaction_DifferentCurrency_ShouldThrowException() {
+        Account sourceAccount = new Account();
+        sourceAccount.setBalance(new BigDecimal("1000.00"));
+        sourceAccount.setCurrency("CNY");
+        
+        Account targetAccount = new Account();
+        targetAccount.setBalance(new BigDecimal("1000.00"));
+        targetAccount.setCurrency("USD");
+
+        when(accountRepository.findById(1L))
+                .thenReturn(Optional.of(sourceAccount));
+        when(accountRepository.findById(2L))
+                .thenReturn(Optional.of(targetAccount));
+
+        assertThrows(InvalidTransactionException.class, () -> 
+                transactionService.createTransaction(request));
     }
 
     @Test
