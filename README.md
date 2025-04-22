@@ -29,5 +29,5 @@
 - H2 Database
 - OpenAPI 3.0
 
-# 或者单独构建Docker镜像
+# 构建Docker镜像
 docker build -t transaction:latest .
