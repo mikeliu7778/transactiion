@@ -18,6 +18,8 @@ import com.hsbc.transaction.exception.InvalidTransactionException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
@@ -41,6 +43,7 @@ public class TransactionServiceImpl implements TransactionService {
 
     @Override
     @Transactional
+    @CacheEvict(value = {"outgoingTransactions", "incomingTransactions", "allTransactions"}, allEntries = true)
     public void createTransaction(TransactionRequest request) {
         TransactionType type = request.getTransactionType();
         
@@ -82,6 +85,7 @@ public class TransactionServiceImpl implements TransactionService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = {"outgoingTransactions", "incomingTransactions", "allTransactions"}, allEntries = true)
     public void deleteTransaction(Long transactionId) {
         OutgoingTransaction outgoing = null;
         try {
@@ -125,6 +129,7 @@ public class TransactionServiceImpl implements TransactionService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = {"outgoingTransactions", "incomingTransactions", "allTransactions"}, allEntries = true)
     public void modifyTransaction(Long transactionId, TransactionRequest request) {
         OutgoingTransaction outgoing = null;
         try {
@@ -173,16 +178,19 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     @Override
+    @Cacheable(value = "outgoingTransactions", key = "#accountId")
     public List<OutgoingTransaction> listOutgoingTransactions(Long accountId) {
         return outgoingTransactionRepository.findByAccountIdAndDelFlagFalse(accountId);
     }
 
     @Override
+    @Cacheable(value = "incomingTransactions", key = "#accountId")
     public List<IncomingTransaction> listIncomingTransactions(Long accountId) {
         return incomingTransactionRepository.findByAccountIdAndDelFlagFalse(accountId);
     }
 
     @Override
+    @Cacheable(value = "allTransactions", key = "#accountId")
     public List<Transaction> listAllTransactions(Long accountId) {
         List<Transaction> allTransactions = new ArrayList<>();
         allTransactions.addAll(outgoingTransactionRepository.findByAccountIdAndDelFlagFalse(accountId));
