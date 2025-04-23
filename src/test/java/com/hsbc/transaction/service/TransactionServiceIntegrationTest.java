@@ -17,7 +17,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -27,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @DataJpaTest
 @ActiveProfiles("test")
+@TestPropertySource(locations = "classpath:application-test.yml")
 class TransactionServiceIntegrationTest {
 
     @Autowired
@@ -126,9 +129,8 @@ class TransactionServiceIntegrationTest {
         transactionService.deleteTransaction(transactionId);
 
         // 验证交易被软删除
-        Optional<OutgoingTransaction> deletedOutgoing = outgoingTransactionRepository.findById(transactionId);
-        assertTrue(deletedOutgoing.isPresent());
-        assertTrue(deletedOutgoing.get().getDelFlag());
+        Optional<OutgoingTransaction> deletedOutgoing = outgoingTransactionRepository.findByTransactionIdAndDelFlagFalse(transactionId);
+        assertTrue(deletedOutgoing.isEmpty());
 
         // 验证转入交易也被软删除
         Optional<IncomingTransaction> incomingTransaction = incomingTransactionRepository
@@ -145,6 +147,30 @@ class TransactionServiceIntegrationTest {
         List<TransactionLog> logs = transactionLogRepository.findAll();
         assertEquals(2, logs.size()); // 创建和删除各一条日志
         assertEquals(TransactionStatus.REVERSED, logs.get(1).getStatus());
+    }
+
+    @Test
+    void deleteTransaction_NotFound() {
+        assertThrows(EntityNotFoundException.class, () ->
+                transactionService.deleteTransaction(999L));
+    }
+
+    @Test
+    void deleteTransaction_AlreadyDeleted() {
+        // 先创建交易
+        transactionService.createTransaction(request);
+
+        // 获取交易ID
+        List<OutgoingTransaction> outgoingTransactions = outgoingTransactionRepository
+                .findByAccountIdAndDelFlagFalse(sourceAccount.getAccountId());
+        Long transactionId = outgoingTransactions.get(0).getTransactionId();
+
+        // 第一次删除
+        transactionService.deleteTransaction(transactionId);
+
+        // 尝试再次删除
+        assertThrows(EntityNotFoundException.class, () ->
+                transactionService.deleteTransaction(transactionId));
     }
 
     @Test
@@ -192,9 +218,21 @@ class TransactionServiceIntegrationTest {
     }
 
     @Test
-    void deleteTransaction_NotFound() {
+    void modifyTransaction_AlreadyDeleted() {
+        // 先创建交易
+        transactionService.createTransaction(request);
+
+        // 获取交易ID
+        List<OutgoingTransaction> outgoingTransactions = outgoingTransactionRepository
+                .findByAccountIdAndDelFlagFalse(sourceAccount.getAccountId());
+        Long transactionId = outgoingTransactions.get(0).getTransactionId();
+
+        // 删除交易
+        transactionService.deleteTransaction(transactionId);
+
+        // 尝试修改已删除的交易
         assertThrows(EntityNotFoundException.class, () ->
-                transactionService.deleteTransaction(999L));
+                transactionService.modifyTransaction(transactionId, request));
     }
 
     @Test

@@ -34,6 +34,7 @@ public class CustomerServiceImpl implements CustomerService {
         Customer customer = new Customer();
         BeanUtils.copyProperties(customerDTO, customer);
         customer = customerRepository.save(customer);
+        customer.setDelFlag(0);
         CustomerDTO result = new CustomerDTO();
         BeanUtils.copyProperties(customer, result);
         return result;

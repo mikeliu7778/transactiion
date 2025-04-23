@@ -88,16 +88,16 @@ class TransactionServiceTest {
                 .thenReturn(outgoingTransaction);
         when(incomingTransactionRepository.save(any(IncomingTransaction.class)))
                 .thenReturn(incomingTransaction);
-        when(accountRepository.findById(1L))
+        when(accountRepository.findByAccountIdAndDelFlagFalse(1L))
                 .thenReturn(Optional.of(sourceAccount));
-        when(accountRepository.findById(2L))
+        when(accountRepository.findByAccountIdAndDelFlagFalse(2L))
                 .thenReturn(Optional.of(targetAccount));
 
         assertDoesNotThrow(() -> transactionService.createTransaction(request));
 
         verify(outgoingTransactionRepository, times(1)).save(any(OutgoingTransaction.class));
         verify(incomingTransactionRepository).save(any(IncomingTransaction.class));
-        verify(accountRepository, atLeastOnce()).findById(anyLong());
+        verify(accountRepository, atLeastOnce()).findByAccountIdAndDelFlagFalse(anyLong());
     }
 
     @Test
@@ -110,9 +110,9 @@ class TransactionServiceTest {
         targetAccount.setBalance(new BigDecimal("1000.00"));
         targetAccount.setCurrency("USD");
 
-        when(accountRepository.findById(1L))
+        when(accountRepository.findByAccountIdAndDelFlagFalse(1L))
                 .thenReturn(Optional.of(sourceAccount));
-        when(accountRepository.findById(2L))
+        when(accountRepository.findByAccountIdAndDelFlagFalse(2L))
                 .thenReturn(Optional.of(targetAccount));
 
         assertThrows(InvalidTransactionException.class, () -> 
@@ -121,7 +121,8 @@ class TransactionServiceTest {
 
     @Test
     void deleteTransaction_OutgoingNotFound() {
-        when(outgoingTransactionRepository.findById(1L)).thenReturn(Optional.empty());
+        when(outgoingTransactionRepository.findByTransactionIdAndDelFlagFalse(1L))
+                .thenReturn(Optional.empty());
 
         assertThrows(EntityNotFoundException.class, () ->
                 transactionService.deleteTransaction(1L));

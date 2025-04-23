@@ -93,7 +93,7 @@ public class TransactionServiceImpl implements TransactionService {
             logger.info("开始删除交易，ID：{}", transactionId);
             
             // 查找并软删除转出交易
-            outgoing = outgoingTransactionRepository.findById(transactionId)
+            outgoing = outgoingTransactionRepository.findByTransactionIdAndDelFlagFalse(transactionId)
                     .orElseThrow(() -> new EntityNotFoundException("Transaction not found"));
             
             // 处理交易撤销逻辑
@@ -137,7 +137,7 @@ public class TransactionServiceImpl implements TransactionService {
             logger.info("开始修改交易，ID：{}", transactionId);
             
             // 修改转出交易
-            outgoing = outgoingTransactionRepository.findById(transactionId)
+            outgoing = outgoingTransactionRepository.findByTransactionIdAndDelFlagFalse(transactionId)
                     .orElseThrow(() -> new EntityNotFoundException("Transaction not found"));
             
             // 先处理原交易的撤销
@@ -226,7 +226,7 @@ public class TransactionServiceImpl implements TransactionService {
         validateTransaction(transaction);
         
         // 获取源账户
-        Account sourceAccount = accountRepository.findById(transaction.getAccountId())
+        Account sourceAccount = accountRepository.findByAccountIdAndDelFlagFalse(transaction.getAccountId())
             .orElseThrow(() -> new InvalidTransactionException("源账户不存在"));
 
         try {
@@ -269,9 +269,9 @@ public class TransactionServiceImpl implements TransactionService {
             }
             
             // 验证币种是否相同
-            Account sourceAccount = accountRepository.findById(transaction.getAccountId())
+            Account sourceAccount = accountRepository.findByAccountIdAndDelFlagFalse(transaction.getAccountId())
                     .orElseThrow(() -> new EntityNotFoundException("源账户不存在"));
-            Account targetAccount = accountRepository.findById(transaction.getToAccountId())
+            Account targetAccount = accountRepository.findByAccountIdAndDelFlagFalse(transaction.getToAccountId())
                     .orElseThrow(() -> new EntityNotFoundException("目标账户不存在"));
             
             if (!sourceAccount.getCurrency().equals(targetAccount.getCurrency())) {
@@ -308,7 +308,7 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         // 获取目标账户
-        Account targetAccount = accountRepository.findById(transaction.getToAccountId())
+        Account targetAccount = accountRepository.findByAccountIdAndDelFlagFalse(transaction.getToAccountId())
             .orElseThrow(() -> new InvalidTransactionException("目标账户不存在"));
 
         // 更新源账户余额（减少）
@@ -336,7 +336,7 @@ public class TransactionServiceImpl implements TransactionService {
 
     private void processTransactionReversal(OutgoingTransaction transaction) {
         // 获取源账户
-        Account sourceAccount = accountRepository.findById(transaction.getAccountId())
+        Account sourceAccount = accountRepository.findByAccountIdAndDelFlagFalse(transaction.getAccountId())
             .orElseThrow(() -> new InvalidTransactionException("源账户不存在"));
 
         try {
@@ -367,7 +367,7 @@ public class TransactionServiceImpl implements TransactionService {
 
     private void handleTransferReversal(Account sourceAccount, OutgoingTransaction transaction) {
         // 获取目标账户
-        Account targetAccount = accountRepository.findById(transaction.getToAccountId())
+        Account targetAccount = accountRepository.findByAccountIdAndDelFlagFalse(transaction.getToAccountId())
             .orElseThrow(() -> new InvalidTransactionException("目标账户不存在"));
 
         // 检查目标账户余额是否充足

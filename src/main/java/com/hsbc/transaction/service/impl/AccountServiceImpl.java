@@ -34,6 +34,7 @@ public class AccountServiceImpl implements AccountService {
         Account account = new Account();
         BeanUtils.copyProperties(accountDTO, account);
         account.setAccountType(Account.AccountType.valueOf(accountDTO.getAccountType()));
+        account.setDelFlag(false);
         account = accountRepository.save(account);
         
         AccountDTO savedAccountDTO = new AccountDTO();
